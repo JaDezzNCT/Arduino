@@ -1,0 +1,271 @@
+#include <Stepper.h>
+
+// ------------------------
+// Stepper Setup
+// ------------------------
+const int STEPS_PER_REV = 2048;
+Stepper steeringStepper(STEPS_PER_REV, 2, 4, 3, 5);
+
+int currentAngle = 90;
+const int MAX_LEFT = 60;
+const int MAX_RIGHT = 120;
+
+// ------------------------
+// Motor Pins
+// ------------------------
+int M_IN1 = 7;
+int M_IN2 = 8;
+int M_PWM = 6;
+
+// ------------------------
+// IR-Sensor (nur 1 Sensor)
+// ------------------------
+const int IR_SENSOR = A0; // Nur 1 Sensor
+
+// ------------------------
+// Potentiometer
+// ------------------------
+const int POTI = A3;
+
+// ------------------------
+// Taster
+// ------------------------
+const int powerButton = 22;
+const int modeButton = 21;
+const int autoButton = 24;
+
+// ------------------------
+// Ultraschall (1 Sensor)
+// ------------------------
+const int trig = 30;
+const int echo = 31;
+
+// ------------------------
+// STATES
+// ------------------------
+bool autoOn = false;
+bool lastPower = HIGH;
+bool lastMode = HIGH;
+bool lastAuto = HIGH;
+
+int mode = 0; // 0=Line, 1=Autonom, 2=Vorsichtig
+
+// ------------------------
+// MOTOR FUNKTIONEN
+// ------------------------
+void motor(int speed) {
+speed = constrain(speed, -255, 255);
+if (speed > 0) {
+digitalWrite(M_IN1, HIGH);
+digitalWrite(M_IN2, LOW);
+analogWrite(M_PWM, speed);
+} else if (speed < 0) {
+digitalWrite(M_IN1, LOW);
+digitalWrite(M_IN2, HIGH);
+analogWrite(M_PWM, -speed);
+} else {
+digitalWrite(M_IN1, LOW);
+digitalWrite(M_IN2, LOW);
+analogWrite(M_PWM, 0);
+}
+}
+
+void stopAll() {
+motor(0);
+}
+
+// ------------------------
+// Ultraschall Funktion
+// ------------------------
+long getDist() {
+digitalWrite(trig, LOW);
+delayMicroseconds(2);
+
+digitalWrite(trig, HIGH);
+delayMicroseconds(10);
+digitalWrite(trig, LOW);
+
+long dur = pulseIn(echo, HIGH, 25000);
+long dist = dur * 0.0343 / 2;
+
+if (dist <= 0) dist = 400;
+return dist;
+}
+
+// ------------------------
+// Stepper Lenkung
+// ------------------------
+void setSteering(int angle) {
+angle = constrain(angle, MAX_LEFT, MAX_RIGHT);
+int steps = map(angle - currentAngle, 0, 360, 0, STEPS_PER_REV);
+steeringStepper.step(steps);
+currentAngle = angle;
+}
+
+// ------------------------
+// SETUP
+// ------------------------
+void setup() {
+Serial.begin(9600);
+
+pinMode(IR_SENSOR, INPUT); // IR Sensor nur 1
+pinMode(POTI, INPUT);
+
+pinMode(powerButton, INPUT_PULLUP);
+pinMode(modeButton, INPUT_PULLUP);
+pinMode(autoButton, INPUT_PULLUP);
+
+pinMode(M_IN1, OUTPUT);
+pinMode(M_IN2, OUTPUT);
+pinMode(M_PWM, OUTPUT);
+
+pinMode(trig, OUTPUT);
+pinMode(echo, INPUT);
+
+steeringStepper.setSpeed(10);
+setSteering(90);
+}
+
+// ------------------------
+// LOOP
+// ------------------------
+void loop() {
+// ---------- BUTTONS ----------
+bool p = digitalRead(powerButton);
+if (p == LOW && lastPower == HIGH) {
+autoOn = !autoOn;
+delay(200);
+}
+lastPower = p;
+
+bool m = digitalRead(modeButton);
+if (m == LOW && lastMode == HIGH) {
+mode = (mode + 1) % 3; // Jetzt 3 Modi (Line, Autonom, Vorsichtig)
+delay(200);
+}
+lastMode = m;
+
+bool a = digitalRead(autoButton);
+if (a == LOW && lastAuto == HIGH) {
+mode = 2; // Autonom direkt
+delay(200);
+}
+lastAuto = a;
+
+
+// ---------- WENN AUS ----------
+if (!autoOn) {
+stopAll();
+setSteering(90);
+Serial.println("AUS");
+return;
+}
+
+// ---------- POTI ALS GESCHWINDIGKEIT ----------
+int potiVal = analogRead(POTI);
+int baseSpeed = map(potiVal, 0, 1023, 60, 220);
+
+
+// ============================================================
+// MODE 0 – LINE FOLLOWER (mit nur einem IR-Sensor)
+// ============================================================
+if (mode == 0) {
+
+int S = digitalRead(IR_SENSOR); // 0 = Linie, 1 = Weiß
+
+if (S == 0) {
+// Linie gefunden → normal fahren
+motor(baseSpeed);
+setSteering(90);
+}
+else {
+// Linie verloren → Suchbewegung
+motor(baseSpeed * 0.6);
+
+// kleine Links-Rechts-BEWEGUNG
+static bool left = false;
+
+if (left) {
+setSteering(70); // links suchen
+} else {
+setSteering(110); // rechts suchen
+}
+
+left = !left; // Richtung abwechseln
+delay(200);
+}
+}
+
+
+// ============================================================
+// MODE 2 – AUTONOM MIT INTELLIGENTER HINDERNISUMFAHRUNG
+// ============================================================
+if (mode == 2) {
+
+long dist = getDist();
+
+if (dist < 20) {
+
+stopAll();
+delay(100);
+
+// LINKS testen
+setSteering(60);
+delay(200);
+long leftDist = getDist();
+
+// RECHTS testen
+setSteering(120);
+delay(200);
+long rightDist = getDist();
+
+// Bessere Seite wählen
+if (leftDist > rightDist) {
+setSteering(60);
+motor(baseSpeed);
+delay(500);
+} else {
+setSteering(120);
+motor(baseSpeed);
+delay(500);
+}
+
+// zurück gerade
+setSteering(90);
+return;
+}
+
+// normal fahren
+motor(baseSpeed);
+setSteering(90);
+}
+
+// ============================================================
+// MODE 3 – VORSICHTIGES FAHREN
+// ============================================================
+if (mode == 3) {
+
+long dist = getDist();
+
+int slowSpeed = baseSpeed * 0.4; // 40% der Geschwindigkeit
+
+// sehr früh reagieren
+if (dist < 40 && dist >= 25) {
+motor(slowSpeed);
+setSteering(90);
+}
+
+else if (dist < 25) {
+stopAll();
+setSteering(90);
+return;
+}
+
+else {
+motor(slowSpeed);
+setSteering(90);
+}
+}
+
+delay(10);
+}
