@@ -2,7 +2,10 @@
 // Pins IR-Sensor (digitaler Objektsensor)
 // -------------------------
 const int irPin = 2;   // OUT-Pin des IR-Sensors
-
+const int Motor1
+const int Motor2
+const int MotorPVM
+const int 
 // -------------------------
 // Pins Ultraschallsensor HC-SR04
 // -------------------------
