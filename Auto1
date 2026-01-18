@@ -1,0 +1,102 @@
+// -------------------------
+// Pins IR-Sensor (digitaler Objektsensor)
+// -------------------------
+const int irPin = 2;  // OUT-Pin des IR-Sensors
+const int motor1;
+const int motor2;
+const int MotorPVM;
+// -------------------------
+// Pins Ultraschallsensor HC-SR04
+// -------------------------
+const int trigPin = 32;
+const int echoPin = 33;
+
+// -------------------------
+// Variablen Ultraschall
+// -------------------------
+long duration;  // Dauer des Echo-Signals
+                // Entfernung in cm
+
+void setup() {
+    Serial.begin(9600);
+
+    // IR-Sensor
+    pinMode(irPin, INPUT);
+
+    // Ultraschallsensor
+    pinMode(trigPin, OUTPUT);
+    pinMode(echoPin, INPUT);
+
+    Serial.println("IR + Ultrasonic Sensor gestartet...");
+}
+
+void loop() {
+    float distance = 0.0;
+    distance = leseAbstand();
+    MotorAction(distance);
+
+    Serial.println("------------------------");
+    delay(200);
+}
+void MotorAction(float distance) {
+    if (distance == 0) {
+        Vorwaerts(5);
+    }
+    if (distance < 10) {
+        Rueckwaerts(5);
+    } else {
+        Vorwaerts(5);
+    }
+}
+float leseAbstand() {
+    float distance = 0.0;
+    // Auslesen
+    digitalWrite(trigPin, LOW);
+    delayMicroseconds(2);
+
+    digitalWrite(trigPin, HIGH);
+    delayMicroseconds(10);
+    digitalWrite(trigPin, LOW);
+
+    // Timeout nach 30 ms (ca. 5 m)
+    duration = pulseIn(echoPin, HIGH, 30000);
+
+    if (duration == 0) {
+        Serial.println("Ultraschall: Kein Echo");
+    } else {
+        distance = duration * 0.034 / 2;
+        Serial.print("Ultraschall: ");
+        Serial.print(distance);
+        Serial.println(" cm");
+    }
+    return distance;
+}
+void Vorwaerts(int dauer) {
+    // Motor vorwärts
+    int startZeit = millis();
+    int stoppeAuto = 0;
+    digitalWrite(motor1, HIGH);
+    digitalWrite(motor2, LOW);
+    Serial.println("Motor fährt vorwärts");
+    while (stoppeAuto == 0) {
+        float distance = leseAbstand();
+        if (millis() > startZeit + dauer * 1000) {
+            stoppeAuto = 1;
+        }
+        if (distance < 10) {
+            Stoppen();
+            stoppeAuto = 1;
+        }
+    }
+}
+
+void Rueckwaerts(int dauer) {
+    // Motor rückwärts
+    digitalWrite(motor1, LOW);
+    digitalWrite(motor2, HIGH);
+    Serial.println("Motor fährt rückwärts");
+}
+void Stoppen() {
+    digitalWrite(motor1, LOW);
+    digitalWrite(motor2, LOW);
+}
